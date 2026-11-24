@@ -411,6 +411,15 @@ export function CallRoom({ characterSlug }: { characterSlug: string }) {
             return;
           }
           const replyText = String(turnBody.text).trim();
+          console.info("[call/turn]", {
+            heard: text.slice(0, 80),
+            reply: replyText.slice(0, 80),
+            provider: turnBody.replyProvider,
+            ms: turnBody.latencyMs,
+          });
+          if (turnBody.replyProvider === "soft") {
+            console.warn("[call/turn] LLM soft-fallback — check API keys");
+          }
           await speakNatural(
             replyText,
             turnBody.audioBase64
