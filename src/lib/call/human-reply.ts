@@ -3,7 +3,6 @@
  * Reply must follow what the user just said. No intent / script bank.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import { isGenericCallReply } from "@/lib/call/natural-reply";
 import { stripForSpeech } from "@/lib/call/conversation-memory";
 
@@ -252,17 +251,31 @@ async function geminiReply(p: CallReplyParams): Promise<string | null> {
 async function claudeReply(p: CallReplyParams): Promise<string | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
   if (!apiKey) return null;
-  const anthropic = new Anthropic({ apiKey });
   const model = process.env.CLAUDE_CHAT_MODEL || "claude-haiku-4-5";
-  // Do NOT send temperature — current Haiku rejects it ("Extra inputs are not permitted")
-  const msg = await anthropic.messages.create({
-    model,
-    max_tokens: 120,
-    messages: [{ role: "user", content: buildHumanPrompt(p) }],
+  // Raw fetch — avoids SDK overload TS errors + temperature rejection on Haiku
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 120,
+      messages: [{ role: "user", content: buildHumanPrompt(p) }],
+    }),
   });
-  const text = msg.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
+  if (!res.ok) {
+    console.warn("[call-reply] claude", res.status, await res.text().catch(() => ""));
+    return null;
+  }
+  const json = (await res.json().catch(() => ({}))) as {
+    content?: Array<{ type?: string; text?: string }>;
+  };
+  const text = (json.content || [])
+    .filter((b) => b.type === "text" && b.text)
+    .map((b) => b.text || "")
     .join(" ")
     .trim();
   return cleanReply(text, p.userText);

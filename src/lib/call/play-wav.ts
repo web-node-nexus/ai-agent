@@ -4,6 +4,13 @@ function writeString(view: DataView, offset: number, str: string) {
   for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
 }
 
+/** Copy into a real ArrayBuffer so BlobPart typing is happy (TS 5.x / DOM lib). */
+function asBlobPart(bytes: Uint8Array): BlobPart {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy;
+}
+
 /** Decode base64 audio — supports PCM L16, WAV, and MP3 (ElevenLabs). */
 export function audioBase64ToBlob(
   b64: string,
@@ -17,10 +24,10 @@ export function audioBase64ToBlob(
 
     const mime = (mimeType || "").toLowerCase();
     if (mime.includes("mpeg") || mime.includes("mp3")) {
-      return new Blob([bytes], { type: "audio/mpeg" });
+      return new Blob([asBlobPart(bytes)], { type: "audio/mpeg" });
     }
     if (mime.includes("wav") || mime.includes("wave")) {
-      return new Blob([bytes], { type: "audio/wav" });
+      return new Blob([asBlobPart(bytes)], { type: "audio/wav" });
     }
 
     // Already a WAV?
@@ -31,7 +38,7 @@ export function audioBase64ToBlob(
       bytes[2] === 0x46 &&
       bytes[3] === 0x46
     ) {
-      return new Blob([bytes], { type: "audio/wav" });
+      return new Blob([asBlobPart(bytes)], { type: "audio/wav" });
     }
 
     // MP3 frame sync without declared mime (FF FB / FF F3 / ID3)
@@ -39,7 +46,7 @@ export function audioBase64ToBlob(
       (bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0) ||
       (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33)
     ) {
-      return new Blob([bytes], { type: "audio/mpeg" });
+      return new Blob([asBlobPart(bytes)], { type: "audio/mpeg" });
     }
 
     return pcmBytesToWavBlob(bytes, sampleRate);
@@ -65,7 +72,7 @@ function pcmBytesToWavBlob(bytes: Uint8Array, sampleRate = 24000): Blob | null {
       bytes[2] === 0x46 &&
       bytes[3] === 0x46
     ) {
-      return new Blob([bytes], { type: "audio/wav" });
+      return new Blob([asBlobPart(bytes)], { type: "audio/wav" });
     }
 
     const dataSize = bytes.byteLength - (bytes.byteLength % 2);
