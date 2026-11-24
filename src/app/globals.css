@@ -1,26 +1,110 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #12081c;
+  --foreground: #f5f0f8;
+  --muted: #9b8aa8;
+  --muted-foreground: #9b8aa8;
+  --card: rgba(255, 255, 255, 0.05);
+  --card-border: rgba(255, 255, 255, 0.1);
+  --accent: #e879a9;
+  --accent-secondary: #a78bfa;
+  --gold: #e8c56a;
+  --gold-foreground: #1a1208;
+  --ink: #0d0714;
+  --ring: rgba(232, 121, 169, 0.5);
+  --success: #34d399;
+  --danger: #f87171;
+  --glass: rgba(18, 8, 28, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --hero-glow: rgba(167, 139, 250, 0.18);
+  --rose-glow: rgba(232, 121, 169, 0.22);
+}
+
+.light {
+  --background: #faf7fc;
+  --foreground: #1a0f24;
+  --muted: #6b5a78;
+  --muted-foreground: #6b5a78;
+  --card: rgba(255, 255, 255, 0.72);
+  --card-border: rgba(80, 40, 100, 0.12);
+  --accent: #c4477a;
+  --accent-secondary: #7c5cbf;
+  --gold: #b8922e;
+  --gold-foreground: #1a1208;
+  --ink: #faf7fc;
+  --ring: rgba(196, 71, 122, 0.45);
+  --success: #059669;
+  --danger: #dc2626;
+  --glass: rgba(250, 247, 252, 0.75);
+  --glass-border: rgba(80, 40, 100, 0.14);
+  --hero-glow: rgba(124, 92, 191, 0.12);
+  --rose-glow: rgba(196, 71, 122, 0.14);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-card-border: var(--card-border);
+  --color-accent: var(--accent);
+  --color-accent-secondary: var(--accent-secondary);
+  --color-gold: var(--gold);
+  --color-gold-foreground: var(--gold-foreground);
+  --color-ink: var(--ink);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-danger: var(--danger);
+  --color-glass: var(--glass);
+  --color-glass-border: var(--glass-border);
+  --font-sans: var(--font-plus-jakarta);
+  --font-display: var(--font-fraunces);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-plus-jakarta), system-ui, sans-serif;
+  min-height: 100dvh;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent) 40%, transparent);
+  color: var(--foreground);
+}
+
+.font-display {
+  font-family: var(--font-fraunces), Georgia, "Times New Roman", serif;
+}
+
+.glass {
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.bg-mesh {
+  background:
+    radial-gradient(ellipse 80% 50% at 20% -10%, var(--rose-glow), transparent 55%),
+    radial-gradient(ellipse 70% 45% at 90% 10%, var(--hero-glow), transparent 50%),
+    radial-gradient(ellipse 60% 40% at 50% 100%, rgba(232, 197, 106, 0.08), transparent 55%),
+    var(--background);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #f9a8d4 0%, #c4b5fd 50%, #e8c56a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.text-gold {
+  color: var(--gold);
 }
