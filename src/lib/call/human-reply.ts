@@ -1,10 +1,9 @@
 /**
- * Call reply brain — always answer WHAT the user said (LLM-first).
- * Intent bank is emergency fallback only when models fail / echo.
+ * Call reply brain — LLM ONLY.
+ * Reply must follow what the user just said. No intent / script bank.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { matchCallIntent } from "@/lib/call/call-intents";
 import { isGenericCallReply } from "@/lib/call/natural-reply";
 import { stripForSpeech } from "@/lib/call/conversation-memory";
 
@@ -22,6 +21,11 @@ export type CallReplyParams = {
   turnIndex: number;
 };
 
+export type CallReplyResult = {
+  text: string;
+  provider: "claude" | "gemini" | "soft";
+};
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
   return new Promise((resolve) => {
     const t = setTimeout(() => resolve(null), ms);
@@ -30,8 +34,9 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
         clearTimeout(t);
         resolve(v);
       })
-      .catch(() => {
+      .catch((err) => {
         clearTimeout(t);
+        console.warn("[call-reply] provider error", err);
         resolve(null);
       });
   });
@@ -77,6 +82,15 @@ function isEchoReply(userText: string, reply: string): boolean {
   return false;
 }
 
+function looksLikeJunkModelOutput(text: string): boolean {
+  const t = text.trim();
+  if (t.length < 3) return true;
+  if (/^(options?|option\s*\d|here(?:'s| is)|as an ai)/i.test(t)) return true;
+  if (/thought|reasoning|step\s*\d/i.test(t) && t.length < 40) return true;
+  if (/^[\{\[]/.test(t)) return true;
+  return false;
+}
+
 function buildHumanPrompt(p: CallReplyParams) {
   const recentBan =
     p.recentAssistant.length > 0
@@ -103,25 +117,27 @@ ${chatBlock}
 Live call so far:
 ${p.history || "(just picked up)"}
 
-THEY JUST SAID (speech-to-text — answer THIS, even if slightly imperfect):
+THEY JUST SAID (speech-to-text — answer THIS exact meaning, even if STT is slightly imperfect):
 "${p.userText}"
 
 ${recentBan}
 
 CRITICAL:
-1) Reply to the MEANING of their line. If they asked something — answer it. If they shared something — react to THAT.
-2) Never bounce the same question back ("और क्या चल रहा?" after "क्या चल रहा?").
-3) Soft, warm phone tone. No harsh "बोल/बोलो".
-4) Mostly Devanagari Hindi + light Hinglish. Max 18 words. One breath.
-5) If STT seems garbled, one soft clarify — don't invent a random topic.
-6) FORBIDDEN: as an AI, how can I help, aur batao, long essay, poetry, fake monologue.
+1) Reply ONLY to what they just said. Different user lines MUST get different replies.
+2) If they asked a question — answer it. If they shared something — react to THAT detail.
+3) Never bounce the same question back ("और क्या चल रहा?" after "क्या चल रहा?").
+4) Soft, warm phone tone. No harsh "बोल/बोलो".
+5) Mostly Devanagari Hindi + light Hinglish. Max 18 words. One breath.
+6) If STT seems garbled, one soft clarify — don't invent a random topic.
+7) FORBIDDEN: as an AI, how can I help, aur batao, long essay, poetry, fake monologue, canned hello scripts.
 
 Examples of GOOD grounding:
 User: "क्या चल रहा है आजकल?" → "बस थोड़ा व्यस्त हूँ… घर-काम। तुम्हारा कैसा चल रहा?"
 User: "कल वाली जॉब की बात…" → "हाँ वो… इंटरव्यू हुआ क्या फिर?"
 User: "मैं थक गया हूँ" → "अरे… आराम कर थोड़ा। दिन भारी था क्या?"
+User: "मुझे पिज्जा खाना है" → "ओह पिज्जा? कौन सा लेते हो — चीज़ी या स्पाइसी?"
 
-Output ONLY the spoken line. No quotes. No emoji.`;
+Output ONLY the spoken line. No quotes. No emoji. No options list.`;
 }
 
 function cleanReply(
@@ -133,56 +149,94 @@ function cleanReply(
     text
       .replace(/^["']|["']$/g, "")
       .replace(/^(Reply|Spoken line|Output)\s*:\s*/i, "")
+      .replace(/\n+/g, " ")
       .trim()
   );
   if (!clean || clean.length < 2) return null;
+  if (looksLikeJunkModelOutput(clean)) return null;
   if (isGenericCallReply(clean)) return null;
   if (isEchoReply(userText, clean)) return null;
   const words = clean.split(/\s+/);
-  if (words.length > 20) clean = words.slice(0, 20).join(" ");
+  if (words.length > 22) clean = words.slice(0, 22).join(" ");
   return clean;
 }
 
-function emergencyFallback(
+/** Last resort if both LLMs fail — still answer the meaning, never parrot-back. */
+function softGroundedFallback(
   userText: string,
-  gender: string,
-  name: string,
-  city: string | null
+  gender: string
 ): string {
-  // Last resort only — prefer intent match, else soft generic (NOT echo)
-  const hit = matchCallIntent(userText, { name, gender, city });
-  if (hit) return hit.reply;
+  const female = gender !== "male";
+  const t = userText.toLowerCase();
   if (looksLikeBadHear(userText)) {
-    return gender !== "male"
+    return female
       ? "अरे… थोड़ा साफ़ सुनाई नहीं दिया।"
       : "थोड़ा साफ़? एक बार और?";
   }
-  return gender !== "male"
-    ? "अच्छा… ये समझ गई। तुम्हारा क्या ख्याल है?"
-    : "अच्छा… समझ गया। तेरा क्या ख्याल है?";
+  if (/kaise\s*ho|kaisi\s*ho|कैसे\s*हो|कैसी\s*हो|how\s*are\s*you|kya\s*haal|क्या\s*हाल/i.test(t)) {
+    return female ? "मैं ठीक हूँ… आप कैसे हो?" : "ठीक हूँ यार… तू कैसे है?";
+  }
+  if (/^(hello|hi+|hey|हेलो|हाय|नमस्ते)\b/i.test(userText.trim()) && userText.trim().split(/\s+/).length <= 3) {
+    return female ? "हेलो… कैसे हो?" : "हेलो… कैसे हो यार?";
+  }
+  if (/kya\s*chal|क्या\s*चल|whats?\s*up|aajkal|आजकल/i.test(t)) {
+    return female
+      ? "बस थोड़ा व्यस्त हूँ… तुम्हारा क्या चल रहा?"
+      : "बस काम चल रहा… तेरा क्या हाल है?";
+  }
+  // Unknown phrase — ask about THAT topic without echoing the whole STT dump
+  return female
+    ? "अच्छा… ये सुन लिया। थोड़ा और बता उसी बात पे?"
+    : "अच्छा… सुन लिया। थोड़ा और उसी पे बता?";
 }
 
 async function geminiReply(p: CallReplyParams): Promise<string | null> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return null;
-  const model = process.env.GEMINI_CHAT_MODEL || "gemini-flash-latest";
+  // gemini-2.0-flash is retired on this key → use flash-latest (3.8)
+  const model =
+    process.env.GEMINI_CALL_MODEL ||
+    process.env.GEMINI_CHAT_MODEL ||
+    "gemini-flash-latest";
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     model
   )}:generateContent?key=${encodeURIComponent(key)}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: buildHumanPrompt(p) }] }],
-      generationConfig: {
-        temperature: 0.75,
-        topP: 0.9,
-        maxOutputTokens: 512,
-      },
-    }),
+
+  const baseConfig = {
+    temperature: 0.8,
+    topP: 0.9,
+    maxOutputTokens: 2048,
+  };
+
+  async function once(
+    generationConfig: Record<string, unknown>
+  ): Promise<Response> {
+    return fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: buildHumanPrompt(p) }] }],
+        generationConfig,
+      }),
+    });
+  }
+
+  // Try with thinking disabled (Flash-3); fall back if model rejects the field
+  let res = await once({
+    ...baseConfig,
+    thinkingConfig: { thinkingBudget: 0 },
   });
   if (!res.ok) {
-    console.warn("[call-reply] gemini", res.status);
+    const errText = await res.text().catch(() => "");
+    if (/thinking|Unknown name|Invalid JSON/i.test(errText) || res.status === 400) {
+      res = await once(baseConfig);
+    } else {
+      console.warn("[call-reply] gemini", res.status, errText.slice(0, 200));
+      return null;
+    }
+  }
+  if (!res.ok) {
+    console.warn("[call-reply] gemini", res.status, await res.text().catch(() => ""));
     return null;
   }
   const json = (await res.json().catch(() => ({}))) as {
@@ -200,10 +254,10 @@ async function claudeReply(p: CallReplyParams): Promise<string | null> {
   if (!apiKey) return null;
   const anthropic = new Anthropic({ apiKey });
   const model = process.env.CLAUDE_CHAT_MODEL || "claude-haiku-4-5";
+  // Do NOT send temperature — current Haiku rejects it ("Extra inputs are not permitted")
   const msg = await anthropic.messages.create({
     model,
-    max_tokens: 80,
-    temperature: 0.7,
+    max_tokens: 120,
     messages: [{ role: "user", content: buildHumanPrompt(p) }],
   });
   const text = msg.content
@@ -214,54 +268,55 @@ async function claudeReply(p: CallReplyParams): Promise<string | null> {
   return cleanReply(text, p.userText);
 }
 
-function firstText(
-  promises: Array<Promise<string | null>>
-): Promise<string | null> {
-  return new Promise((resolve) => {
-    let left = promises.length;
-    if (!left) {
-      resolve(null);
-      return;
-    }
-    for (const p of promises) {
-      void p.then((v) => {
-        if (v) resolve(v);
-        else if (--left <= 0) resolve(null);
-      });
-    }
-  });
-}
+type ProviderHit = { text: string; provider: "claude" | "gemini" };
 
 /**
- * LLM-first: react to whatever the user said.
- * Intent bank only if both models fail / return echo junk.
+ * Race Claude + Gemini. First QUALITY reply wins.
+ * No scripted intent bank — ever.
  */
 export async function generateHumanCallReply(
   p: CallReplyParams
-): Promise<string> {
-  if (looksLikeBadHear(p.userText)) {
-    return emergencyFallback(p.userText, p.gender, p.name, p.city);
-  }
+): Promise<CallReplyResult> {
+  const claudeP = withTimeout(claudeReply(p), 6000).then((text) =>
+    text ? ({ text, provider: "claude" } as ProviderHit) : null
+  );
+  const geminiP = withTimeout(geminiReply(p), 5500).then((text) =>
+    text ? ({ text, provider: "gemini" } as ProviderHit) : null
+  );
 
-  // Give models enough time to actually answer (instant script removed)
-  let reply = await firstText([
-    withTimeout(claudeReply(p), 2800),
-    withTimeout(geminiReply(p), 2500),
-  ]);
-
-  if (reply && isEchoReply(p.userText, reply)) {
-    console.warn("[call-reply] echo rejected", reply.slice(0, 40));
-    reply = null;
-  }
-
-  if (!reply || isGenericCallReply(reply)) {
-    reply = emergencyFallback(p.userText, p.gender, p.name, p.city);
-  }
-
-  console.info("[call-reply]", {
-    heard: p.userText.slice(0, 60),
-    reply: reply.slice(0, 60),
-    turn: p.turnIndex,
+  const hit = await new Promise<ProviderHit | null>((resolve) => {
+    let left = 2;
+    let settled = false;
+    const done = (v: ProviderHit | null) => {
+      if (settled) return;
+      if (v) {
+        settled = true;
+        resolve(v);
+        return;
+      }
+      if (--left <= 0) {
+        settled = true;
+        resolve(null);
+      }
+    };
+    void claudeP.then(done);
+    void geminiP.then(done);
   });
-  return reply;
+
+  if (hit) {
+    console.info("[call-reply]", {
+      provider: hit.provider,
+      heard: p.userText.slice(0, 60),
+      reply: hit.text.slice(0, 60),
+      turn: p.turnIndex,
+    });
+    return { text: hit.text, provider: hit.provider };
+  }
+
+  const soft = softGroundedFallback(p.userText, p.gender);
+  console.warn("[call-reply] soft fallback (no LLM)", {
+    heard: p.userText.slice(0, 60),
+    reply: soft.slice(0, 60),
+  });
+  return { text: soft, provider: "soft" };
 }

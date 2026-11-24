@@ -114,7 +114,7 @@ export async function POST(request: Request) {
   const chat = getChatContext(parsed.data.sessionId);
 
   const started = Date.now();
-  const reply = await generateHumanCallReply({
+  const generated = await generateHumanCallReply({
     name: character.name,
     gender: character.gender,
     city: character.city,
@@ -127,6 +127,7 @@ export async function POST(request: Request) {
     recentAssistant,
     turnIndex,
   });
+  const reply = generated.text;
 
   pushCallTurn(parsed.data.sessionId, "assistant", reply);
 
@@ -136,7 +137,7 @@ export async function POST(request: Request) {
       gender: character.gender,
       name: character.name,
     }),
-    4000
+    8000
   );
 
   const payload = {
@@ -144,6 +145,7 @@ export async function POST(request: Request) {
     heard: userText,
     language: "hi" as const,
     gender: character.gender,
+    replyProvider: generated.provider,
     latencyMs: Date.now() - started,
   };
 

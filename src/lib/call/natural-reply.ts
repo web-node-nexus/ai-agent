@@ -276,7 +276,6 @@ export function isGenericCallReply(text: string): boolean {
     /^(हाँ|haan)\s*(बोलो|bolo)\s*[—\-–]?\s*(सुन|sun)/i.test(text.trim()) ||
     /सुन लिया\s*[—\-–]?\s*आगे बोलो/.test(text) ||
     /aur batao/.test(t) ||
-    /kya scene hai/.test(t) ||
     /main sun rah[ai] hoon\.?$/.test(t) ||
     /how can i help/.test(t) ||
     /बात कर सकते हैं/.test(text)
